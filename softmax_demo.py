@@ -29,17 +29,17 @@ def main():
   digits = load_csv('/Users/JordanDodson/code/datasets/mnist/mnist_digits.csv', lambda x: x/255)
 
   # Initialize a network
-  n = net.Network(digits[:50000], [784] + layers + [10], batch_size, eta, mu, lmbda)
+  n = net.Network(digits[:50000], [784] + layers + [10], batch_size, eta, mu, lmbda, eval_data=digits[50000:60000])
 
   print('Training...')
 
   # Train the network
-  n.sgd(epochs, stats=True, eval_data=digits[50000:60000])
+  n.sgd(epochs, stats=True)
 
   while input('Continue training? (y / [n]): ').strip().lower() == 'y':
     r = input('Epochs: ')
     epochs = int(r.strip())
-    n.sgd(epochs, stats=True, eval_data=digits[50000:60000])
+    n.sgd(epochs, stats=True)
   
 if __name__ == '__main__':
   main()

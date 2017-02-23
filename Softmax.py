@@ -11,7 +11,7 @@ class Network(object):
   '''A feed-forward neural network with ReLU hidden layers and softmax output layer.
   '''
 
-  def __init__(self, train_data, sizes, batch_size, eta, mu, lmbda):
+  def __init__(self, train_data, sizes, batch_size, eta, mu, lmbda, eval_data):
     '''Initialize the members of the network
 
        sizes: list[int] ------> The sizes of the layers
@@ -20,6 +20,7 @@ class Network(object):
        eta: float ------------> The learning rate.
        mu: float  ------------> The momentum coefficient.
        lmbda: float ----------> The regularization coefficient.
+       eval_data: list[(ndarray, ndarray)]-------> The evaluation data.
     '''
 
     # The number of layers
@@ -42,6 +43,9 @@ class Network(object):
 
     # The regularization parameter
     self.lmbda = lmbda
+
+    # The evaluation data
+    self.eval_data = eval_data
 
     self.stats = {'epoch_times': [], 'train_costs': [], 'train_errors': [], 'eval_costs': [], 'eval_errors': [],
              'mu': self.mu, 'eta': self.eta, 'lambda': self.lmbda, 'batch_size': self.batch_size, 'train_set_size': len(train_data) }
@@ -98,10 +102,10 @@ class Network(object):
 
     num_correct = 0
 
-    for input, target in dataset:
-      output = self.feedForward(input)
+    for x, t in dataset:
+      output = self.feedForward(x)
       guess = np.argmax(output)
-      if target[guess] > 0:
+      if t[guess] > 0:
         num_correct += 1
 
     return 1 - (num_correct / len(dataset))
@@ -121,7 +125,7 @@ class Network(object):
     return base_cost + reg_term
 
 
-  def sgd(self, epochs, stats = False, eval_data = None):
+  def sgd(self, epochs, stats = False):
     '''Train the network with stochastic gradient descent.
 
     Parameters
@@ -129,17 +133,16 @@ class Network(object):
 
     epochs: int -----------> The number of epochs for which to train.
     stats: bool -----------> Should statistics be computed for each epoch?
-    eval_data: list[(ndarray, ndarray)]-------> The evaluation data.
 
     '''
 
     # Check for eval_data
-    if eval_data is None:
+    if self.eval_data is None:
       show_progress = False
       num_tests = 0
     else:
       show_progress = True
-      num_tests = len(eval_data)
+      num_tests = len(self.eval_data)
 
     # The number of training instances
     n = len(self.train_data)
@@ -182,10 +185,10 @@ class Network(object):
         # Test network with eval_data
         if show_progress:
 
-          eval_cost = self.cost(eval_data)
+          eval_cost = self.cost(self.eval_data)
           self.stats['eval_costs'].append(eval_cost)
 
-          eval_error = self.error(eval_data)
+          eval_error = self.error(self.eval_data)
           self.stats['eval_errors'].append(eval_error)
 
           print(" | {:.2f} | {:.2f}%".format(eval_cost, 100*eval_error), end='')
