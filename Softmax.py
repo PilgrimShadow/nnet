@@ -4,21 +4,47 @@ from activations import relu, relu_prime, softmax
 from cost_functions import cross_entropy
 from data_loaders import load_csv
 
-
+# TODO: Add an epoch counter in __init__
 # TODO: Add a check for uniformity of layer size
 
 class Network(object):
   '''A feed-forward neural network with ReLU hidden layers and softmax output layer.
   '''
 
-  def __init__(self, sizes):
-    '''Initialize the members of the network'''
+  def __init__(self, train_data, sizes, batch_size, eta, mu, lmbda):
+    '''Initialize the members of the network
+
+       sizes: list[int] ------> The sizes of the layers
+       train_data: list[(ndarray, ndarray)]------> The training data.
+       batch_size: int -------> The size of a mini-batch.
+       eta: float ------------> The learning rate.
+       mu: float  ------------> The momentum coefficient.
+       lmbda: float ----------> The regularization coefficient.
+    '''
 
     # The number of layers
     self.num_layers = len(sizes)
 
     # The sizes of the layers
     self.sizes = sizes
+
+    # The data used to train the network
+    self.train_data = train_data
+
+    # The size of an SGD mini-batch
+    self.batch_size = batch_size
+
+    # The learning rate
+    self.eta = eta
+
+    # The momentum coefficient
+    self.mu = mu
+
+    # The regularization parameter
+    self.lmbda = lmbda
+
+    self.stats = {'epoch_times': [], 'train_costs': [], 'train_errors': [], 'eval_costs': [], 'eval_errors': [],
+             'mu': self.mu, 'eta': self.eta, 'lambda': self.lmbda, 'batch_size': self.batch_size, 'train_set_size': len(train_data) }
 
     # Initialize the bias vectors and weight matrices
     self.biases  = [np.random.uniform(0.05, 0.15, size=(y, 1)) for y in self.sizes[1:]]
@@ -54,7 +80,7 @@ class Network(object):
 
     # Softmax ouput layer
     if self.sizes[-1] == res.shape[0]:
-      np.dot(w, res, res)
+      np.dot(self.weights[-1], res, res)
     else:
       res = self.weights[-1].dot(res)
 
@@ -81,7 +107,7 @@ class Network(object):
     return 1 - (num_correct / len(dataset))
 
 
-  def cost(self, dataset, lmbda):
+  def cost(self, dataset):
     '''Cost function
 
     Compute the cost of the given dataset.
@@ -90,24 +116,18 @@ class Network(object):
     '''
 
     base_cost = sum(cross_entropy(t, self.feedForward(x)) for x, t in dataset)
-    reg_term  = (lmbda / (2 * len(dataset))) * sum(np.sum(np.square(w)) for w in self.weights)
+    reg_term  = (self.lmbda / (2 * len(dataset))) * sum(np.sum(np.square(w)) for w in self.weights)
 
     return base_cost + reg_term
 
 
-  def sgd(self, train_data, epochs, batch_size, eta, mu, lmbda,
-                stats = False, eval_data = None):
+  def sgd(self, epochs, stats = False, eval_data = None):
     '''Train the network with stochastic gradient descent.
 
     Parameters
     ~~~~~~~~~~
 
-    train_data: list[(ndarray, ndarray)]------> The training data.
     epochs: int -----------> The number of epochs for which to train.
-    batch_size: int -------> The size of a mini-batch.
-    eta: float ------------> The learning rate.
-    mu: float  ------------> The momentum coefficient.
-    lmbda: float ----------> The regularization coefficient.
     stats: bool -----------> Should statistics be computed for each epoch?
     eval_data: list[(ndarray, ndarray)]-------> The evaluation data.
 
@@ -122,10 +142,8 @@ class Network(object):
       num_tests = len(eval_data)
 
     # The number of training instances
-    n = len(train_data)
+    n = len(self.train_data)
 
-    stats = {'epoch_times': [], 'train_costs': [], 'train_errors': [], 'eval_costs': [], 'eval_errors': [],
-             'mu': mu, 'eta': eta, 'lambda': lmbda, 'batch_size': batch_size, 'train_set_size': n }
 
     # Update network for each epoch
     for j in range(epochs):
@@ -134,10 +152,10 @@ class Network(object):
       start_time = time.time()
 
       # Shuffle the training instances
-      np.random.shuffle(train_data)
+      np.random.shuffle(self.train_data)
 
       # Group the training instances by batch size
-      batches = (train_data[k : k + batch_size] for k in range(0, n, batch_size))
+      batches = (self.train_data[k : k + self.batch_size] for k in range(0, n, self.batch_size))
 
       # Run through a set of batches
       for batch in batches:
@@ -149,26 +167,26 @@ class Network(object):
         ys = np.hstack([instance[1] for instance in batch])
 
         # Perform a batch update
-        self.update_batch((xs, ys), eta, mu, lmbda, n)
+        self.update_batch((xs, ys), n)
 
       # Keep track of epoch times
-      stats['epoch_times'].append(time.time() - start_time)
+      self.stats['epoch_times'].append(time.time() - start_time)
 
-      print('Epoch {:d} | {:.2f}s'.format(j, stats['epoch_times'][-1]), end='')
+      print('Epoch {:{}d} | {:.2f}s'.format(j, int(1 + np.floor(np.log10(epochs))), self.stats['epoch_times'][-1]), end='')
 
       # Compute the elapsed time for this epoch
       if stats:
-        stats['train_costs'].append(self.cost(train_data, lmbda))
-        stats['train_errors'].append(self.error(train_data))
+        self.stats['train_costs'].append(self.cost(self.train_data))
+        self.stats['train_errors'].append(self.error(self.train_data))
 
         # Test network with eval_data
         if show_progress:
 
-          eval_cost = self.cost(eval_data, lmbda)
-          stats['eval_costs'].append(eval_cost)
+          eval_cost = self.cost(eval_data)
+          self.stats['eval_costs'].append(eval_cost)
 
           eval_error = self.error(eval_data)
-          stats['eval_errors'].append(eval_error)
+          self.stats['eval_errors'].append(eval_error)
 
           print(" | {:.2f} | {:.2f}%".format(eval_cost, 100*eval_error), end='')
 
@@ -179,33 +197,29 @@ class Network(object):
     return stats
 
 
-  def update_batch(self, batch, eta, mu, lmbda, n):
+  def update_batch(self, batch, n):
     '''Update the network with the given mini-batch.
 
     Parameters
     ~~~~~~~~~~
 
     batch -> The training instances for the batch
-    eta ---> The learning rate.
-    mu ----> The momentum coefficient.
-    lmbda -> The regularization parameter.
     n -----> The size of the training set.
 
     '''
 
+    # TODO: Perhaps rename the parameter below, since batch_size is a class member
+
     # The number of instances in this batch
     batch_size = batch[0].shape[1]
-
-    # TODO: would it be cleaner to have lmbda always be a fraction
-    #       of the training set size?
 
     # Update biases and weights for this batch
     # TODO: the l parameter is kinda ugly
     for l, nabla_b_l, nabla_w_l in self.backprop(batch):
 
-      self.velocity_b[-l] = (mu * self.velocity_b[-l] - eta * nabla_b_l) / batch_size
-      self.velocity_w[-l] = (mu * self.velocity_w[-l] - eta *
-                            (nabla_w_l + (lmbda * self.weights[-l]) / n)) / batch_size
+      self.velocity_b[-l] = (self.mu * self.velocity_b[-l] - self.eta * nabla_b_l) / batch_size
+      self.velocity_w[-l] = (self.mu * self.velocity_w[-l] - self.eta *
+                            (nabla_w_l + (self.lmbda * self.weights[-l]) / n)) / batch_size
 
       self.biases[-l]  += self.velocity_b[-l]
       self.weights[-l] += self.velocity_w[-l]
