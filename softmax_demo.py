@@ -2,17 +2,17 @@
 '''
 
 import Softmax as net
-import data_loaders
+from data_loaders import load_csv
 
 def main():
 
-  digits = data_loaders.load_csv('/Users/JordanDodson/code/datasets/mnist/mnist_digits.csv', lambda x: x/255)
+  digits = load_csv('/Users/JordanDodson/code/datasets/mnist/mnist_digits.csv', lambda x: x/255)
 
   # Initialize a network
   n = net.Network([784, 30, 10])
 
   # Train the network
-  n.sgd(digits[:50000], 10, 30, 0.01, 0, 0, True, digits[50000:60000])
+  n.sgd(digits[:50000], 15, 30, eta=0.01, mu=0, lmbda=10, stats=True, eval_data=digits[50000:60000])
 
   
 if __name__ == '__main__':

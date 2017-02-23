@@ -1,30 +1,7 @@
-import pickle
 import time
 import numpy as np
-from activation_functions import *
+from activations import *
 from data_loaders import load_csv
-
-
-def random_training_instance(input_size, target_size, uniform=False):
-  '''.'''
-
-  target = np.zeros((target_size, 1))
-  if uniform:
-    target.fill(1/target_size)
-
-  return (np.random.rand(input_size, 1), target)
-
-
-# TODO: Need to use nan_to_num to ensure stability
-def cross_entropy(a, t):
-  '''Compute the cross entropy given an output activation and target.'''
-  return (t - 1).dot(np.log2(a)) - t.dot(np.log2(1-a))
-
-
-# The cross-entropy cost function used with a softmax output layer
-def cross_entropy2(a, t):
-
-  return -t.dot(np.log2(a))
 
 
 class Network(object):

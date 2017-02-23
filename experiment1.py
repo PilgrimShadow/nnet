@@ -3,6 +3,15 @@ import data_loaders
 import numpy as np
 import json
 
+def random_training_instance(input_size, target_size, uniform=False):
+  '''Generate a random training instance.'''
+
+  target = np.zeros((target_size, 1))
+  if uniform:
+    target.fill(1/target_size)
+
+  return (np.random.rand(input_size, 1), target)
+
 # The experiment - augmenting training data with noisy images
 def main(num_trials, runs_per_trial):
 
@@ -18,7 +27,7 @@ def main(num_trials, runs_per_trial):
 
   # append random images to tail of list
   for i in range(num_trials*10000):
-    digits.append(net.random_training_instance(784, 10))
+    digits.append(random_training_instance(784, 10))
 
   # train with various numbers of noisy images
   for i in range(num_trials+1):

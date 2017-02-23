@@ -1,63 +1,28 @@
 import time
 import numpy as np
 from activations import relu, relu_prime, softmax
+from cost_functions import cross_entropy
 from data_loaders import load_csv
-
-# TODO: what is the best orientation for activation/weight arrays? Instances
-#       stored in columns or rows?
-
-
-def random_training_instance(input_size, target_size, uniform=False):
-  '''
-  Generate a random training instance.
-  '''
-
-  target = np.zeros((target_size, 1))
-  if uniform:
-    target.fill(1/target_size)
-
-  return (np.random.rand(input_size, 1), target)
-
-
-def cross_entropy(t, a):
-  '''
-  Return the cross-entropy cost for the batch.
-
-  Each column corresponds to one training instance.
-
-  t: numpy.ndarray --> targets
-  a: numpy.ndarray --> activations
-  '''
-
-  return -np.sum(t * np.log2(a))
 
 
 # TODO: Add a check for uniformity of layer size
 
 class Network(object):
-  '''A feed-forward neural network with ReLU hidden layers and
-     a softmax output layer.
+  '''A feed-forward neural network with ReLU hidden layers and softmax output layer.
   '''
 
   def __init__(self, sizes):
+    '''Initialize the members of the network'''
+
+    # The number of layers
     self.num_layers = len(sizes)
 
     # The sizes of the layers
     self.sizes = sizes
 
-    # Initialize weights and biases
-    self.initialize()
-
-
-  def initialize(self):
-    '''
-    Initialize network weights and biases, avoiding saturation.
-    '''
-
-    # The bias vectors and weight matrices for each layer
+    # Initialize the bias vectors and weight matrices
     self.biases  = [np.random.uniform(0.05, 0.15, size=(y, 1)) for y in self.sizes[1:]]
-    self.weights = [np.random.normal(size=(y, x))/np.sqrt(x)
-                    for x, y in zip(self.sizes[:-1], self.sizes[1:])]
+    self.weights = [np.random.normal(size=(y, x))/np.sqrt(x) for x, y in zip(self.sizes[:-1], self.sizes[1:])]
 
     # Initialize velocities to zero
     self.velocity_b = [np.zeros((y, 1)) for y in self.sizes[1:]]
@@ -65,8 +30,7 @@ class Network(object):
 
 
   def feedForward(self, a):
-    '''
-    Compute the output of the network for the given batch.
+    '''Compute the output of the network for the given batch.
 
     Each column is an input vector.
 
@@ -101,10 +65,9 @@ class Network(object):
 
 
   def error(self, dataset):
-    '''
-    Compute the classification error on the given dataset.
+    '''Compute the classification error on the given dataset.
 
-    A dataset is a list of (input, target) pairs.
+    dataset: list[(ndarray, ndarray)]
     '''
 
     num_correct = 0
@@ -118,7 +81,7 @@ class Network(object):
     return 1 - (num_correct / len(dataset))
 
 
-  def cost(self, dataset):
+  def cost(self, dataset, lmbda):
     '''Cost function
 
     Compute the cost of the given dataset.
@@ -126,31 +89,27 @@ class Network(object):
     dataset: list[(ndarray, ndarray)] --> list of training instances
     '''
 
-    cost = 0
+    base_cost = sum(cross_entropy(t, self.feedForward(x)) for x, t in dataset)
+    reg_term  = (lmbda / (2 * len(dataset))) * sum(np.sum(np.square(w)) for w in self.weights)
 
-    for x, t in dataset:
-
-      cost += cross_entropy(t, self.feedForward(x))
-
-    return cost
+    return base_cost + reg_term
 
 
   def sgd(self, train_data, epochs, batch_size, eta, mu, lmbda,
                 stats = False, eval_data = None):
-    '''
-    Train the network with stochastic gradient descent.
+    '''Train the network with stochastic gradient descent.
 
     Parameters
     ~~~~~~~~~~
 
-    train_data ------> The training data.
+    train_data: list[(ndarray, ndarray)]------> The training data.
     epochs: int -----------> The number of epochs for which to train.
     batch_size: int -------> The size of a mini-batch.
     eta: float ------------> The learning rate.
     mu: float  ------------> The momentum coefficient.
     lmbda: float ----------> The regularization coefficient.
     stats: bool -----------> Should statistics be computed for each epoch?
-    eval_data -------> The evaluation data.
+    eval_data: list[(ndarray, ndarray)]-------> The evaluation data.
 
     '''
 
@@ -162,15 +121,11 @@ class Network(object):
       show_progress = True
       num_tests = len(eval_data)
 
-    # initialize stat vectors
-    epoch_times  = []
-    train_costs  = []
-    train_errors = []
-    eval_costs   = []
-    eval_errors  = []
-
     # The number of training instances
     n = len(train_data)
+
+    stats = {'epoch_times': [], 'train_costs': [], 'train_errors': [], 'eval_costs': [], 'eval_errors': [],
+             'mu': mu, 'eta': eta, 'lambda': lmbda, 'batch_size': batch_size, 'train_set_size': n }
 
     # Update network for each epoch
     for j in range(epochs):
@@ -197,24 +152,23 @@ class Network(object):
         self.update_batch((xs, ys), eta, mu, lmbda, n)
 
       # Keep track of epoch times
-      epoch_times.append(time.time() - start_time)
+      stats['epoch_times'].append(time.time() - start_time)
 
-      print('Epoch {:d} | {:.2f}s'.format(j, epoch_times[-1]), end='')
+      print('Epoch {:d} | {:.2f}s'.format(j, stats['epoch_times'][-1]), end='')
 
       # Compute the elapsed time for this epoch
       if stats:
-        train_costs.append(self.cost(train_data))
-
-        train_errors.append(self.error(train_data))
+        stats['train_costs'].append(self.cost(train_data, lmbda))
+        stats['train_errors'].append(self.error(train_data))
 
         # Test network with eval_data
         if show_progress:
 
-          eval_cost = self.cost(eval_data)
-          eval_costs.append(eval_cost)
+          eval_cost = self.cost(eval_data, lmbda)
+          stats['eval_costs'].append(eval_cost)
 
           eval_error = self.error(eval_data)
-          eval_errors.append(eval_error)
+          stats['eval_errors'].append(eval_error)
 
           print(" | {:.2f} | {:.2f}%".format(eval_cost, 100*eval_error), end='')
 
@@ -222,10 +176,7 @@ class Network(object):
       print('')
 
     # Return stats for this round of training
-    return { "epoch_times": epoch_times, "train_costs": train_costs,
-             "train_errors": train_errors, "eval_costs": eval_costs,
-             "eval_errors": eval_errors, "mu": mu, "eta": eta,
-             "lambda": lmbda, "batch_size": batch_size, "train_set_size": n }
+    return stats
 
 
   def update_batch(self, batch, eta, mu, lmbda, n):
@@ -305,6 +256,5 @@ class Network(object):
 
       # yield the nabla_b and nabla_w terms for the -i layer
       yield (i, delta.sum(axis=1, keepdims=True), nabla_w)
-
 
 
