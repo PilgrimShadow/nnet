@@ -2,6 +2,9 @@ import struct
 import pickle
 import numpy as np
 
+# TODO: Extend the open_csv method to handle labels at the beginning and end of a line
+
+
 def read_images_idx3(file_name):
   with open(file_name, 'rb') as data_file:
     magic_number   = struct.unpack(">i", data_file.read(4))[0]

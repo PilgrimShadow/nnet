@@ -4,14 +4,16 @@ from activations import relu, relu_prime, softmax
 from cost_functions import cross_entropy
 from data_loaders import load_csv
 
+# TODO: Fix the numbering when sgd() is run multiple times
 # TODO: Add an epoch counter in __init__
+# TODO: Change the stats parameter to be the period of stats (every x epochs, compute stats)
 # TODO: Add a check for uniformity of layer size
 
 class Network(object):
   '''A feed-forward neural network with ReLU hidden layers and softmax output layer.
   '''
 
-  def __init__(self, train_data, sizes, batch_size, eta, mu, lmbda, eval_data):
+  def __init__(self, train_data, sizes, batch_size, eta, mu, lmbda, eval_data=None, keep_stats=True):
     '''Initialize the members of the network
 
        sizes: list[int] ------> The sizes of the layers
@@ -21,6 +23,7 @@ class Network(object):
        mu: float  ------------> The momentum coefficient.
        lmbda: float ----------> The regularization coefficient.
        eval_data: list[(ndarray, ndarray)]-------> The evaluation data.
+       keep_stats: bool ------> Should statistics be computed for each epoch?
     '''
 
     # The number of layers
@@ -46,6 +49,9 @@ class Network(object):
 
     # The evaluation data
     self.eval_data = eval_data
+
+    # Boolean indicating whether stats should be kept during training
+    self.keep_stats = keep_stats
 
     self.stats = {'epoch_times': [], 'train_costs': [], 'train_errors': [], 'eval_costs': [], 'eval_errors': [],
              'mu': self.mu, 'eta': self.eta, 'lambda': self.lmbda, 'batch_size': self.batch_size, 'train_set_size': len(train_data) }
@@ -125,14 +131,13 @@ class Network(object):
     return base_cost + reg_term
 
 
-  def sgd(self, epochs, stats = False):
+  def sgd(self, epochs):
     '''Train the network with stochastic gradient descent.
 
     Parameters
     ~~~~~~~~~~
 
     epochs: int -----------> The number of epochs for which to train.
-    stats: bool -----------> Should statistics be computed for each epoch?
 
     '''
 
@@ -178,7 +183,7 @@ class Network(object):
       print('Epoch {:{}d} | {:.2f}s'.format(j, int(1 + np.floor(np.log10(epochs))), self.stats['epoch_times'][-1]), end='')
 
       # Compute the elapsed time for this epoch
-      if stats:
+      if self.keep_stats:
         self.stats['train_costs'].append(self.cost(self.train_data))
         self.stats['train_errors'].append(self.error(self.train_data))
 
@@ -196,8 +201,8 @@ class Network(object):
       # Print trailing newline for this epoch
       print('')
 
-    # Return stats for this round of training
-    return stats
+    # Return the cumulative training stats for the network
+    return self.stats
 
 
   def update_batch(self, batch, n):
