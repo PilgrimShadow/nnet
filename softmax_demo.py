@@ -6,6 +6,7 @@ from data_loaders import load_csv
 
 def main():
 
+  # Display the available datasets
   print('---Datasets---')
   print('1) MNIST')
   print('2) USPS')
@@ -16,6 +17,7 @@ def main():
 
   print('Loading data...')
 
+  # Load the selected dataset
   if d == 1:
     digits = load_csv('/Users/JordanDodson/code/datasets/mnist/mnist_digits.csv', lambda x: x/255)
     train_data = digits[:50000]
@@ -32,6 +34,7 @@ def main():
     input_layer_size = 64
     
 
+  # Acquire network params and hyper-params
   r = input('Hidden Layers: ')
   layers = [int(x) for x in r.split(' ')]
 
@@ -51,7 +54,7 @@ def main():
   lmbda = float(r.strip())
 
 
-  # Initialize a network
+  # Initialize the network
   #n = net.Network(digits[:50000], [784] + layers + [10], batch_size, eta, mu, lmbda, eval_data=digits[50000:60000])
   n = net.Network(train_data, [input_layer_size] + layers + [10], batch_size, eta, mu, lmbda, eval_data=eval_data)
 
@@ -60,6 +63,7 @@ def main():
   # Train the network
   n.sgd(epochs)
 
+  # Optionally continue training the network
   while input('Continue training? (y / [n]): ').strip().lower() == 'y':
     r = input('Epochs: ')
     epochs = int(r.strip())
