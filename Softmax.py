@@ -7,9 +7,7 @@ from activations import relu, relu_prime, softmax
 from cost_functions import cross_entropy
 from data_loaders import load_csv
 
-# TODO: Change the stats parameter to be the period of stats (every x epochs, compute stats)
 # TODO: Add a check for uniformity of layer size
-# TODO: Add the velocity to the stats object
 
 class Network(object):
   '''A feed-forward neural network with ReLU hidden layers and softmax output layer.
@@ -60,7 +58,8 @@ class Network(object):
 
     # Dictionary to track the training stats
     self.stats = {'epoch_times': [], 'train_costs': [], 'train_errors': [], 'eval_costs': [], 'eval_errors': [],
-             'mu': self.mu, 'eta': self.eta, 'lambda': self.lmbda, 'batch_size': self.batch_size, 'train_set_size': len(train_data) }
+             'mu': self.mu, 'eta': self.eta, 'lambda': self.lmbda, 'batch_size': self.batch_size, 'train_set_size': len(train_data),
+             'velocity_b': [], 'velocity_w': [] }
 
     # Initialize the bias vectors and weight matrices
     self.biases  = [np.random.uniform(0.05, 0.15, size=(y, 1)) for y in self.sizes[1:]]
@@ -106,19 +105,34 @@ class Network(object):
     return res
 
 
+  def cost_and_error(self, dataset):
+
+    num_correct = 0
+    images = []
+
+    for x, t in dataset:
+      output = self.feedForward(x)
+      images.append(output)
+      guess = np.argmax(output)
+      if t[guess] > 0:
+        num_correct += 1
+
+    error = 1 - (num_correct / len(dataset))
+
+    base_cost = sum(cross_entropy(x[1], images[i]) for i, x in enumerate(dataset))
+    reg_term  = (self.lmbda / (2 * len(dataset))) * sum(np.sum(np.square(w)) for w in self.weights)
+    cost = base_cost + reg_term
+
+    return (cost, error)
+
+
   def error(self, dataset):
     '''Compute the classification error on the given dataset.
 
     dataset: list[(ndarray, ndarray)] --> (input, target)
     '''
 
-    num_correct = 0
-
-    for x, t in dataset:
-      output = self.feedForward(x)
-      guess = np.argmax(output)
-      if t[guess] > 0:
-        num_correct += 1
+    num_correct = sum( t[np.argmax(self.feedForward(x))] > 0 for x, t in dataset )
 
     return 1 - (num_correct / len(dataset))
 
@@ -196,19 +210,21 @@ class Network(object):
 
       # Compute the elapsed time for this epoch
       if self.keep_stats:
-        self.stats['train_costs'].append(self.cost(self.train_data))
-        self.stats['train_errors'].append(self.error(self.train_data))
+
+        train_cost, train_error = self.cost_and_error(self.train_data)
+        self.stats['train_costs'].append(train_cost)
+        self.stats['train_errors'].append(train_error)
+        self.stats['velocity_b'].append(self.velocity_b)
+        self.stats['velocity_w'].append(sum(np.sum(w) for w in self.velocity_w))
 
         # Test network with eval_data
         if show_progress:
 
-          eval_cost = self.cost(self.eval_data)
+          eval_cost, eval_error = self.cost_and_error(self.eval_data)
           self.stats['eval_costs'].append(eval_cost)
-
-          eval_error = self.error(self.eval_data)
           self.stats['eval_errors'].append(eval_error)
 
-          print(" | {:.2f} | {:.2f}%".format(eval_cost, 100*eval_error), end='')
+          print(" | {:.4f} | {:.2f} | {:.2f}%".format(self.stats['velocity_w'][-1], eval_cost, 100*eval_error), end='')
 
       # Print trailing newline for this epoch
       print('')

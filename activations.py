@@ -43,14 +43,10 @@ def softmax(z, out=None):
   out : numpy.ndarray --> where to store the result
   '''
 
-  # We subtract a column's max for numerical stability
-  m = np.amax(z, axis=0)
-
   if out is None:
-    e = np.exp(z-m)
+    e = np.exp(z)
     return e / np.sum(e, axis=0)
   else:
-    np.subtract(z, m, out)
     np.exp(z, out)
     np.divide(out, np.sum(out, axis=0), out)
     return out
