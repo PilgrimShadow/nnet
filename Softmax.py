@@ -1,23 +1,25 @@
+# Stdlib
 import time
 import numpy as np
+
+# Project
 from activations import relu, relu_prime, softmax
 from cost_functions import cross_entropy
 from data_loaders import load_csv
 
-# TODO: Fix the numbering when sgd() is run multiple times
-# TODO: Add an epoch counter in __init__
 # TODO: Change the stats parameter to be the period of stats (every x epochs, compute stats)
 # TODO: Add a check for uniformity of layer size
+# TODO: Add the velocity to the stats object
 
 class Network(object):
   '''A feed-forward neural network with ReLU hidden layers and softmax output layer.
   '''
 
-  def __init__(self, train_data, sizes, batch_size, eta, mu, lmbda, eval_data=None, keep_stats=True):
+  def __init__(self, train_data, hidden_sizes, batch_size, eta, mu, lmbda, eval_data=None, keep_stats=True):
     '''Initialize the members of the network
 
-       sizes: list[int] ------> The sizes of the layers
-       train_data: list[(ndarray, ndarray)]------> The training data.
+       hidden_sizes: list[int] ------> The sizes of the hidden layers
+       train_data: list[(ndarray, ndarray)]------> The training data (input, target)
        batch_size: int -------> The size of a mini-batch.
        eta: float ------------> The learning rate.
        mu: float  ------------> The momentum coefficient.
@@ -26,11 +28,11 @@ class Network(object):
        keep_stats: bool ------> Should statistics be computed for each epoch?
     '''
 
-    # The number of layers
-    self.num_layers = len(sizes)
-
     # The sizes of the layers
-    self.sizes = sizes
+    self.sizes = [len(train_data[0][0])] + hidden_sizes + [len(train_data[0][1])]
+
+    # The number of layers
+    self.num_layers = len(self.sizes)
 
     # The data used to train the network
     self.train_data = train_data
@@ -47,12 +49,16 @@ class Network(object):
     # The regularization parameter
     self.lmbda = lmbda
 
+    # The number of epochs this network has been trained
+    self.epochs_trained = 0
+
     # The evaluation data
     self.eval_data = eval_data
 
     # Boolean indicating whether stats should be kept during training
     self.keep_stats = keep_stats
 
+    # Dictionary to track the training stats
     self.stats = {'epoch_times': [], 'train_costs': [], 'train_errors': [], 'eval_costs': [], 'eval_errors': [],
              'mu': self.mu, 'eta': self.eta, 'lambda': self.lmbda, 'batch_size': self.batch_size, 'train_set_size': len(train_data) }
 
@@ -103,7 +109,7 @@ class Network(object):
   def error(self, dataset):
     '''Compute the classification error on the given dataset.
 
-    dataset: list[(ndarray, ndarray)]
+    dataset: list[(ndarray, ndarray)] --> (input, target)
     '''
 
     num_correct = 0
@@ -122,7 +128,7 @@ class Network(object):
 
     Compute the cost of the given dataset.
 
-    dataset: list[(ndarray, ndarray)] --> list of training instances
+    dataset: list[(ndarray, ndarray)] --> list of training instances (input, target)
     '''
 
     base_cost = sum(cross_entropy(t, self.feedForward(x)) for x, t in dataset)
@@ -152,6 +158,8 @@ class Network(object):
     # The number of training instances
     n = len(self.train_data)
 
+    # Used for formatting output
+    f = self.epochs_trained + epochs
 
     # Update network for each epoch
     for j in range(epochs):
@@ -175,12 +183,16 @@ class Network(object):
         ys = np.hstack([instance[1] for instance in batch])
 
         # Perform a batch update
-        self.update_batch((xs, ys), n)
+        self._update_batch((xs, ys), n)
+
+      # Another epoch has been completed
+      self.epochs_trained += 1
 
       # Keep track of epoch times
       self.stats['epoch_times'].append(time.time() - start_time)
 
-      print('Epoch {:{}d} | {:.2f}s'.format(j, int(1 + np.floor(np.log10(epochs))), self.stats['epoch_times'][-1]), end='')
+      # Display the elapsed time for this epoch
+      print('Epoch {:{}d} | {:.2f}s'.format(self.epochs_trained, int(1 + np.floor(np.log10(f))), self.stats['epoch_times'][-1]), end='')
 
       # Compute the elapsed time for this epoch
       if self.keep_stats:
@@ -205,7 +217,7 @@ class Network(object):
     return self.stats
 
 
-  def update_batch(self, batch, n):
+  def _update_batch(self, batch, n):
     '''Update the network with the given mini-batch.
 
     Parameters
@@ -223,7 +235,7 @@ class Network(object):
 
     # Update biases and weights for this batch
     # TODO: the l parameter is kinda ugly
-    for l, nabla_b_l, nabla_w_l in self.backprop(batch):
+    for l, nabla_b_l, nabla_w_l in self._backprop(batch):
 
       self.velocity_b[-l] = (self.mu * self.velocity_b[-l] - self.eta * nabla_b_l) / batch_size
       self.velocity_w[-l] = (self.mu * self.velocity_w[-l] - self.eta *
@@ -233,7 +245,7 @@ class Network(object):
       self.weights[-l] += self.velocity_w[-l]
 
 
-  def backprop(self, batch):
+  def _backprop(self, batch):
     '''Backprop
 
       Iterates backwards through layers, yielding nabla_b and nabla_w.
