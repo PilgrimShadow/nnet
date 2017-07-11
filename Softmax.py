@@ -7,6 +7,7 @@ from activations import relu, relu_prime, softmax
 from cost_functions import cross_entropy
 from data_loaders import load_csv
 
+# TODO: Optimize memory usage. Reuse ndarrays wherever possible
 # TODO: Add a check for uniformity of layer size
 
 class Network(object):
@@ -249,9 +250,21 @@ class Network(object):
     # The number of instances in this batch
     batch_size = batch[0].shape[1]
 
+    mu_scaled = self.mu / batch_size
+    eta_scaled = self.eta / batch_size
+    lmbda_scaled = self.lmbda / batch_size
+
     # Update biases and weights for this batch
     # TODO: the l parameter is kinda ugly
     for l, nabla_b_l, nabla_w_l in self._backprop(batch):
+
+      # Update the bias velocity
+      #self.velocity_b[-l] *= mu_scaled
+      #nabla_b_l *= eta_scaled
+      #np.minus(self.velocity_b[-l], nabla_b_l, out=self.velocity_b[-l])
+
+      # Update the weight velocity
+      self.velocity_w[-l] *= mu_scaled
 
       self.velocity_b[-l] = (self.mu * self.velocity_b[-l] - self.eta * nabla_b_l) / batch_size
       self.velocity_w[-l] = (self.mu * self.velocity_w[-l] - self.eta *
