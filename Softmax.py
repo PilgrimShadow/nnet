@@ -7,6 +7,7 @@ from activations import relu, relu_prime, softmax
 from cost_functions import cross_entropy
 from data_loaders import load_csv
 
+# TODO: Instead of a list of weight matrices, try one single weight tensor
 # TODO: Optimize memory usage. Reuse ndarrays wherever possible
 # TODO: Add a check for uniformity of layer size
 
@@ -207,7 +208,7 @@ class Network(object):
       self.stats['epoch_times'].append(time.time() - start_time)
 
       # Display the elapsed time for this epoch
-      print('Epoch {:{}d} | {:.2f}s'.format(self.epochs_trained, int(1 + np.floor(np.log10(f))), self.stats['epoch_times'][-1]), end='')
+      print('Epoch {:{}d} | {:.4f}s'.format(self.epochs_trained, int(1 + np.floor(np.log10(f))), self.stats['epoch_times'][-1]), end='')
 
       # Compute the elapsed time for this epoch
       if self.keep_stats:
@@ -250,28 +251,33 @@ class Network(object):
     # The number of instances in this batch
     batch_size = batch[0].shape[1]
 
-    mu_scaled = self.mu / batch_size
-    eta_scaled = self.eta / batch_size
-    lmbda_scaled = self.lmbda / batch_size
+    veloc_factor = self.mu / batch_size
+    decay_factor = self.eta * self.lmbda / (n * batch_size)
+    grad_factor = self.eta / batch_size
 
     # Update biases and weights for this batch
     # TODO: the l parameter is kinda ugly
     for l, nabla_b_l, nabla_w_l in self._backprop(batch):
 
-      # Update the bias velocity
-      #self.velocity_b[-l] *= mu_scaled
-      #nabla_b_l *= eta_scaled
-      #np.minus(self.velocity_b[-l], nabla_b_l, out=self.velocity_b[-l])
+      # Update the weight velocity
+      np.multiply(self.velocity_b[-l], veloc_factor, out=self.velocity_b[-l])
+      np.multiply(nabla_b_l, grad_factor, out=nabla_b_l)
+      np.subtract(self.velocity_b[-l], nabla_b_l, out=self.velocity_b[-l])
 
       # Update the weight velocity
-      self.velocity_w[-l] *= mu_scaled
+      np.multiply(self.velocity_w[-l], veloc_factor, out=self.velocity_w[-l])
+      np.multiply(nabla_w_l, grad_factor, out=nabla_w_l)
+      np.subtract(self.velocity_w[-l], nabla_w_l, out=self.velocity_w[-l])
 
-      self.velocity_b[-l] = (self.mu * self.velocity_b[-l] - self.eta * nabla_b_l) / batch_size
-      self.velocity_w[-l] = (self.mu * self.velocity_w[-l] - self.eta *
-                            (nabla_w_l + (self.lmbda * self.weights[-l]) / n)) / batch_size
+      #self.velocity_b[-l] = veloc_factor * self.velocity_b[-l] - grad_factor * nabla_b_l
+      #self.velocity_w[-l] = veloc_factor * self.velocity_w[-l] - grad_factor * nabla_w_l
 
-      self.biases[-l]  += self.velocity_b[-l]
-      self.weights[-l] += self.velocity_w[-l]
+      # Update the biases
+      np.add(self.biases[-l], self.velocity_b[-l], out=self.biases[-l])
+
+      # Update the weights
+      np.multiply(self.weights[-l], 1 - decay_factor, out=self.weights[-l])
+      np.add(self.weights[-l], self.velocity_w[-l], out=self.weights[-l])
 
 
   def _backprop(self, batch):
