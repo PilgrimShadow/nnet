@@ -63,7 +63,10 @@ class Network(object):
     self._activations = [np.ndarray(shape=(y, 1)) for y in self.sizes[1:]]
 
     # Memory to store batch activations
-    self._backprop_activations = [np.ndarray(shape=(y, self.batch_size)) for y in self.sizes[1:]]
+    self._batch_activations = [np.ndarray(shape=(y, self.batch_size)) for y in self.sizes[1:]]
+
+    # Memory to store weighted inputs for each layer
+    self._weighted_inputs = [np.ndarray(shape=(y, self.batch_size)) for y in self.sizes[1:]]
 
     # Dictionary to track the training stats
     self.stats = {'epoch_times': [], 'train_costs': [], 'train_errors': [], 'eval_costs': [], 'eval_errors': [],
@@ -87,7 +90,7 @@ class Network(object):
 
     Each column is an input vector.
 
-    a : (n x m) ndarray --> initial activations
+    a : (n x 1) ndarray --> initial activation
     '''
 
     # first layer
@@ -168,9 +171,6 @@ class Network(object):
       show_progress = True
       num_tests = len(self.eval_data)
 
-    # The number of training instances
-    n = len(self.train_data)
-
     # Used for formatting output
     f = self.epochs_trained + epochs
 
@@ -184,7 +184,7 @@ class Network(object):
       np.random.shuffle(self.train_data)
 
       # Group the training instances by batch size
-      batches = (self.train_data[k : k + self.batch_size] for k in range(0, n, self.batch_size))
+      batches = (self.train_data[k : k + self.batch_size] for k in range(0, len(self.train_data), self.batch_size))
 
       # Run through a set of batches
       for batch in batches:
@@ -195,8 +195,10 @@ class Network(object):
         # Group all target vectors into a single matrix
         ys = np.hstack([instance[1] for instance in batch])
 
-        # Perform a batch update
-        self._update_batch((xs, ys), n)
+        # Ignoring any remainder batch for now
+        if xs.shape[1] == self.batch_size:
+          # Perform a batch update
+          self._update_batch((xs, ys))
 
       # Another epoch has been completed
       self.epochs_trained += 1
@@ -230,7 +232,7 @@ class Network(object):
     return self.stats
 
 
-  def _update_batch(self, batch, n):
+  def _update_batch(self, batch):
     '''Update the network with the given mini-batch.
 
     Parameters
@@ -245,6 +247,8 @@ class Network(object):
 
     # The number of instances in this batch
     batch_size = batch[0].shape[1]
+
+    n = len(self.train_data)
 
     # Factors used in the update equations
     veloc_factor = self.mu / batch_size
@@ -273,7 +277,7 @@ class Network(object):
       np.add(self.weights[-l], self.velocity_w[-l], out=self.weights[-l])
 
 
-  def _backprop(self, batch):
+  def _backprop(self, batch,):
     '''Backprop
 
       Iterates backwards through layers, yielding nabla_b and nabla_w.
@@ -282,41 +286,52 @@ class Network(object):
       y : m x 1 ndarray, m is size of output layer
     '''
 
-    # Activations of each layer
-    activations = [batch[0]]
+    # first layer
+    np.dot(self.weights[0], batch[0], out=self._weighted_inputs[0])
+    np.add(self._weighted_inputs[0], self.biases[0], out=self._weighted_inputs[0])
+    relu(self._weighted_inputs[0], out=self._batch_activations[0])
 
-    # Weighted inputs for all but the input layer
-    weighted_inputs = []
-
-    # forward pass
-    for b, w in zip(self.biases[:-1], self.weights[:-1]):
-
-      # broadcasting when adding biases
-      weighted_inputs.append(w.dot(activations[-1]) + b)
-      activations.append(relu(weighted_inputs[-1]))
+    # hidden layers
+    for i in range(1, len(self.weights)-1):
+      np.dot(self.weights[i], self._batch_activations[i-1], out=self._weighted_inputs[i])
+      np.add(self._weighted_inputs[i], self.biases[i], out=self._weighted_inputs[i])
+      relu(self._weighted_inputs[i], out=self._batch_activations[i])
 
     # final layer (softmax)
-    weighted_inputs.append(self.weights[-1].dot(activations[-1]) + self.biases[-1])
-    activations.append(softmax(weighted_inputs[-1]))
+    np.dot(self.weights[-1], self._batch_activations[-2], out=self._weighted_inputs[-1])
+    np.add(self._weighted_inputs[-1], self.biases[-1], out=self._weighted_inputs[-1])
+    softmax(self._weighted_inputs[-1], out=self._batch_activations[-1])
+
+    # TODO: Create delta and nabla_w tensors to reuse in all calculations below
 
     # backward pass initialization
-    # employing the cross-entropy cancellation here
-    delta = activations[-1] - batch[1]
+    # We store delta[i] in self._batch_activations[i] to reduce memory_usage
+    np.subtract(self._batch_activations[-1], batch[1], out=self._batch_activations[-1])
 
     # Compute the nabla_b and nabla_w terms for the last layer
-    nabla_w = delta.dot(activations[-2].T)
-    yield (1, delta.sum(axis=1, keepdims=True), nabla_w)
+    nabla_w = self._batch_activations[-1].dot(self._batch_activations[-2].T)
+    yield (1, self._batch_activations[-1].sum(axis=1, keepdims=True), nabla_w)
 
     # backward pass
-    for i in range(2, len(self.sizes)):
+    for i in range(2, len(self.sizes)-1):
 
       # compute delta for the previous layer
-      delta = (self.weights[-i + 1].T).dot(delta) * relu_prime(weighted_inputs[-i])
+      np.dot(self.weights[-i+1].T, self._batch_activations[-i+1], out=self._batch_activations[-i])
+      relu_prime(self._weighted_inputs[-i], out=self._weighted_inputs[-i])
+      np.multiply(self._batch_activations[-i], self._weighted_inputs[-i], out=self._batch_activations[-i])
 
       # compute nabla_w for the updated delta values
-      nabla_w = delta.dot(activations[-(i+1)].T)
+      nabla_w = self._batch_activations[-i].dot(self._batch_activations[-i-1].T)
 
       # yield the nabla_b and nabla_w terms for the -i layer
-      yield (i, delta.sum(axis=1, keepdims=True), nabla_w)
+      yield (i, self._batch_activations[-i].sum(axis=1, keepdims=True), nabla_w)
+
+    np.dot(self.weights[-len(self.sizes)+2].T, self._batch_activations[-len(self.sizes)+2], out=self._batch_activations[-len(self.sizes)+1])
+    relu_prime(self._weighted_inputs[-len(self.sizes)+1], out=self._weighted_inputs[-len(self.sizes)+1])
+    np.multiply(self._batch_activations[-len(self.sizes)+1], self._weighted_inputs[-len(self.sizes)+1], out=self._batch_activations[-len(self.sizes)+1])
+    
+    nabla_w = self._batch_activations[-len(self.sizes)+1].dot(batch[0].T)
+    yield (len(self.sizes)-1, self._batch_activations[-len(self.sizes)+1].sum(axis=1, keepdims=True), nabla_w)
+
 
 
