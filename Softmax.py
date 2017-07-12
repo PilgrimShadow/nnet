@@ -7,6 +7,7 @@ from activations import relu, relu_prime, softmax
 from cost_functions import cross_entropy
 from data_loaders import load_csv
 
+# TODO: Rewrite _backprop() to use _backprop_activations
 # TODO: Instead of a list of weight matrices, try one single weight tensor
 # TODO: Optimize memory usage. Reuse ndarrays wherever possible
 # TODO: Add a check for uniformity of layer size
@@ -58,14 +59,23 @@ class Network(object):
     # Boolean indicating whether stats should be kept during training
     self.keep_stats = keep_stats
 
+    # Memory to store layer activations
+    self._activations = [np.ndarray(shape=(y, 1)) for y in self.sizes[1:]]
+
+    # Memory to store batch activations
+    self._backprop_activations = [np.ndarray(shape=(y, self.batch_size)) for y in self.sizes[1:]]
+
     # Dictionary to track the training stats
     self.stats = {'epoch_times': [], 'train_costs': [], 'train_errors': [], 'eval_costs': [], 'eval_errors': [],
-             'mu': self.mu, 'eta': self.eta, 'lambda': self.lmbda, 'batch_size': self.batch_size, 'train_set_size': len(train_data),
-             'velocity_b': [], 'velocity_w': [] }
+             'mu': self.mu, 'eta': self.eta, 'lambda': self.lmbda, 'batch_size': self.batch_size, 'train_set_size': len(train_data)}
 
     # Initialize the bias vectors and weight matrices
     self.biases  = [np.random.uniform(0.05, 0.15, size=(y, 1)) for y in self.sizes[1:]]
-    self.weights = [np.random.normal(size=(y, x))/np.sqrt(x) for x, y in zip(self.sizes[:-1], self.sizes[1:])]
+    self.weights = [np.random.normal(size=(y, x)) for x, y in zip(self.sizes[:-1], self.sizes[1:])]
+
+    # Scale the initial weights
+    for w in self.weights:
+      np.divide(w, np.sqrt(w.shape[1]), out=w)
 
     # Initialize velocities to zero
     self.velocity_b = [np.zeros((y, 1)) for y in self.sizes[1:]]
@@ -81,51 +91,38 @@ class Network(object):
     '''
 
     # first layer
-    res = self.weights[0].dot(a)
-    np.add(res, self.biases[0], res)
-    relu(res, res)
+    np.dot(self.weights[0], a, out=self._activations[0])
+    np.add(self._activations[0], self.biases[0], self._activations[0])
+    relu(self._activations[0], out=self._activations[0])
 
     # middle layers
-    for b, w in zip(self.biases[1:-1], self.weights[1:-1]):
-      if b.shape[0] == res.shape[0]:
-        np.dot(w, res, res)
-      else:
-        res = w.dot(res)
-
-      np.add(res, b, res)
-      relu(res, res)
+    for i in range(1, len(self.weights)-1):
+      np.dot(self.weights[i], self._activations[i-1], self._activations[i])
+      np.add(self._activations[i], self.biases[i], self._activations[i])
+      relu(self._activations[i], self._activations[i])
 
     # Softmax ouput layer
-    if self.sizes[-1] == res.shape[0]:
-      np.dot(self.weights[-1], res, res)
-    else:
-      res = self.weights[-1].dot(res)
+    np.dot(self.weights[-1], self._activations[-2], self._activations[-1])
+    np.add(self._activations[-1], self.biases[-1], self._activations[-1])
+    softmax(self._activations[-1], self._activations[-1])
 
-    np.add(res, self.biases[-1], res)
-    softmax(res, res)
-
-    return res
+    return self._activations[-1]
 
 
   def cost_and_error(self, dataset):
 
     num_correct = 0
-    images = []
+    base_cost = 0
 
     for x, t in dataset:
       output = self.feedForward(x)
-      images.append(output)
-      guess = np.argmax(output)
-      if t[guess] > 0:
+      base_cost += cross_entropy(t, output)
+      if t[np.argmax(output)] > 0:
         num_correct += 1
 
-    error = 1 - (num_correct / len(dataset))
-
-    base_cost = sum(cross_entropy(x[1], images[i]) for i, x in enumerate(dataset))
     reg_term  = (self.lmbda / (2 * len(dataset))) * sum(np.sum(np.square(w)) for w in self.weights)
-    cost = base_cost + reg_term
 
-    return (cost, error)
+    return (base_cost + reg_term, 1 - num_correct / len(dataset))
 
 
   def error(self, dataset):
@@ -216,8 +213,6 @@ class Network(object):
         train_cost, train_error = self.cost_and_error(self.train_data)
         self.stats['train_costs'].append(train_cost)
         self.stats['train_errors'].append(train_error)
-        self.stats['velocity_b'].append(self.velocity_b)
-        self.stats['velocity_w'].append(sum(np.sum(w) for w in self.velocity_w))
 
         # Test network with eval_data
         if show_progress:
@@ -226,7 +221,7 @@ class Network(object):
           self.stats['eval_costs'].append(eval_cost)
           self.stats['eval_errors'].append(eval_error)
 
-          print(" | {:.4f} | {:.2f} | {:.2f}%".format(self.stats['velocity_w'][-1], eval_cost, 100*eval_error), end='')
+          print(" | {:.2f} | {:.2f}%".format(eval_cost, 100*eval_error), end='')
 
       # Print trailing newline for this epoch
       print('')
@@ -251,6 +246,7 @@ class Network(object):
     # The number of instances in this batch
     batch_size = batch[0].shape[1]
 
+    # Factors used in the update equations
     veloc_factor = self.mu / batch_size
     decay_factor = self.eta * self.lmbda / (n * batch_size)
     grad_factor = self.eta / batch_size
@@ -259,7 +255,7 @@ class Network(object):
     # TODO: the l parameter is kinda ugly
     for l, nabla_b_l, nabla_w_l in self._backprop(batch):
 
-      # Update the weight velocity
+      # Update the bias velocity
       np.multiply(self.velocity_b[-l], veloc_factor, out=self.velocity_b[-l])
       np.multiply(nabla_b_l, grad_factor, out=nabla_b_l)
       np.subtract(self.velocity_b[-l], nabla_b_l, out=self.velocity_b[-l])
@@ -268,9 +264,6 @@ class Network(object):
       np.multiply(self.velocity_w[-l], veloc_factor, out=self.velocity_w[-l])
       np.multiply(nabla_w_l, grad_factor, out=nabla_w_l)
       np.subtract(self.velocity_w[-l], nabla_w_l, out=self.velocity_w[-l])
-
-      #self.velocity_b[-l] = veloc_factor * self.velocity_b[-l] - grad_factor * nabla_b_l
-      #self.velocity_w[-l] = veloc_factor * self.velocity_w[-l] - grad_factor * nabla_w_l
 
       # Update the biases
       np.add(self.biases[-l], self.velocity_b[-l], out=self.biases[-l])
