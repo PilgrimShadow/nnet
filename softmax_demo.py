@@ -9,8 +9,9 @@ def main():
   # Display the available datasets
   print('---Datasets---')
   print('1) MNIST')
-  print('2) USPS')
-  print('3) Bogazici')
+  print('2) MNIST (Kaggle)')
+  print('3) USPS')
+  print('4) Bogazici')
 
   r = input('Select: ')
   d = int(r.strip())
@@ -23,10 +24,14 @@ def main():
     train_data = digits[:50000]
     eval_data  = digits[50000:60000]
   elif d == 2:
+    digits = load_csv('/Users/JordanDodson/code/datasets/kaggle/digit-recognizer/train.csv', lambda x: x/255, has_labels=True)
+    train_data = digits[:-5000]
+    eval_data  = digits[-5000:]
+  elif d == 3:
     digits = load_csv('/Users/JordanDodson/code/datasets/usps_digits/usps_digits.csv', lambda x: (x+1)/2)
     train_data = digits[:7291]
     eval_data  = digits[7291:]
-  elif d == 3:
+  elif d == 4:
     train_data = load_csv('/Users/JordanDodson/code/datasets/bogazici/bogazici-digits-train.csv', lambda x: x/16)
     eval_data  = load_csv('/Users/JordanDodson/code/datasets/bogazici/bogazici-digits-test.csv', lambda x: x/16)
     
@@ -52,7 +57,6 @@ def main():
 
 
   # Initialize the network
-  #n = net.Network(digits[:50000], [784] + layers + [10], batch_size, eta, mu, lmbda, eval_data=digits[50000:60000])
   n = net.Network(train_data, layers, batch_size, eta, mu, lmbda, eval_data=eval_data)
 
   print('Training...')

@@ -64,7 +64,7 @@ def label_to_array(label, n):
   return v
 
 
-def load_csv(filename, transform):
+def load_csv(filename, transform, has_labels=False):
   '''
   Loads a dataset in csv format.
 
@@ -87,6 +87,11 @@ def load_csv(filename, transform):
   dataset = []
 
   with open(filename) as f:
+
+    # Skip the labels
+    if has_labels:
+      next(f)
+
     for line in f:
       entries  = line.split(',')
       img_data = [float(c) for c in entries[1:]]
