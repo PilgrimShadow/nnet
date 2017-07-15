@@ -3,20 +3,18 @@ import time
 import numpy as np
 
 # Project
-from activations import softmax
 from cost_functions import cross_entropy
-from data_loaders import load_csv
 
-# TODO: Make the activation functions configurable - could be added to the hidden_sizes parameter [(size, activation)]
+# TODO: Use np.array_split to create batches
+# TODO: Add a batch_size parameter to the cost_and_error function to improve performance
 # TODO: Instead of a list of weight matrices, try one single weight tensor
-# TODO: Optimize memory usage. Reuse ndarrays wherever possible
 # TODO: Add a check for uniformity of layer size
 
 class Network(object):
   '''A feed-forward neural network with ReLU hidden layers and softmax output layer.
   '''
 
-  def __init__(self, train_data, hidden_layers, batch_size, eta, mu, lmbda, eval_data=None, keep_stats=True):
+  def __init__(self, train_data, hidden_layers, output_layer, batch_size, eta, mu, lmbda, eval_data=None, keep_stats=False):
     '''Initialize the members of the network
 
        hidden_layers: list[(int, ActivationFunction)] ------> The size and activation to use for each hidden layer
@@ -34,6 +32,7 @@ class Network(object):
 
     # The activation functions used in each hidden layer
     self.activation_funcs = [x[1] for x in hidden_layers]
+    self.activation_funcs.append(output_layer)
 
     # The number of layers
     self.num_layers = len(self.sizes)
@@ -101,16 +100,11 @@ class Network(object):
     np.add(self._activations[0], self.biases[0], self._activations[0])
     self.activation_funcs[0].func(self._activations[0], out=self._activations[0])
 
-    # middle layers
-    for i in range(1, len(self.weights)-1):
+    # Remaining layers
+    for i in range(1, len(self.weights)):
       np.dot(self.weights[i], self._activations[i-1], self._activations[i])
       np.add(self._activations[i], self.biases[i], self._activations[i])
       self.activation_funcs[i].func(self._activations[i], self._activations[i])
-
-    # Softmax ouput layer
-    np.dot(self.weights[-1], self._activations[-2], self._activations[-1])
-    np.add(self._activations[-1], self.biases[-1], self._activations[-1])
-    softmax(self._activations[-1], self._activations[-1])
 
     return self._activations[-1]
 
@@ -166,14 +160,6 @@ class Network(object):
 
     '''
 
-    # Check for eval_data
-    if self.eval_data is None:
-      show_progress = False
-      num_tests = 0
-    else:
-      show_progress = True
-      num_tests = len(self.eval_data)
-
     # Used for formatting output
     f = self.epochs_trained + epochs
 
@@ -187,16 +173,15 @@ class Network(object):
       np.random.shuffle(self.train_data)
 
       # Group the training instances by batch size
+      #batches = np.array_split(self.train_data, self.batch_size, axis=1)
       batches = (self.train_data[k : k + self.batch_size] for k in range(0, len(self.train_data), self.batch_size))
 
       # Run through a set of batches
       for batch in batches:
 
-        # Group all input vectors into a single matrix
-        xs = np.hstack([instance[0] for instance in batch])
-
-        # Group all target vectors into a single matrix
-        ys = np.hstack([instance[1] for instance in batch])
+        # Group all batch inputs and targets into single tensors
+        xs = np.concatenate([instance[0] for instance in batch], axis=1)
+        ys = np.concatenate([instance[1] for instance in batch], axis=1)
 
         # Ignoring any remainder batch for now
         if xs.shape[1] == self.batch_size:
@@ -223,7 +208,7 @@ class Network(object):
         self.stats['train_errors'].append(train_error)
 
       # Test network with eval_data
-      if show_progress:
+      if self.eval_data is not None:
         eval_cost, eval_error = self.cost_and_error(self.eval_data)
         self.stats['eval_costs'].append(eval_cost)
         self.stats['eval_errors'].append(eval_error)
@@ -241,45 +226,36 @@ class Network(object):
     ~~~~~~~~~~
 
     batch -> The training instances for the batch
-    n -----> The size of the training set.
 
     '''
 
-    # TODO: Perhaps rename the parameter below, since batch_size is a class member
-
-    # The number of instances in this batch
-    batch_size = batch[0].shape[1]
-
-    n = len(self.train_data)
-
     # Factors used in the update equations
-    veloc_factor = self.mu / batch_size
-    decay_factor = self.eta * self.lmbda / (n * batch_size)
-    grad_factor = self.eta / batch_size
+    decay_factor = self.eta * self.lmbda / len(self.train_data)
+    grad_factor = self.eta / self.batch_size
 
     # Update biases and weights for this batch
     # TODO: the l parameter is kinda ugly
     for l, nabla_b_l, nabla_w_l in self._backprop(batch):
 
       # Update the bias velocity
-      np.multiply(self.velocity_b[-l], veloc_factor, out=self.velocity_b[-l])
+      np.multiply(self.velocity_b[-l], self.mu, out=self.velocity_b[-l])
       np.multiply(nabla_b_l, grad_factor, out=nabla_b_l)
       np.subtract(self.velocity_b[-l], nabla_b_l, out=self.velocity_b[-l])
 
       # Update the weight velocity
-      np.multiply(self.velocity_w[-l], veloc_factor, out=self.velocity_w[-l])
+      np.multiply(self.velocity_w[-l], self.mu, out=self.velocity_w[-l])
       np.multiply(nabla_w_l, grad_factor, out=nabla_w_l)
       np.subtract(self.velocity_w[-l], nabla_w_l, out=self.velocity_w[-l])
+      np.subtract(self.velocity_w[-l], decay_factor * self.weights[-l], self.velocity_w[-l])
 
       # Update the biases
       np.add(self.biases[-l], self.velocity_b[-l], out=self.biases[-l])
 
       # Update the weights
-      np.multiply(self.weights[-l], 1 - decay_factor, out=self.weights[-l])
       np.add(self.weights[-l], self.velocity_w[-l], out=self.weights[-l])
 
 
-  def _backprop(self, batch,):
+  def _backprop(self, batch):
     '''Backprop
 
       Iterates backwards through layers, yielding nabla_b and nabla_w.
@@ -293,16 +269,11 @@ class Network(object):
     np.add(self._weighted_inputs[0], self.biases[0], out=self._weighted_inputs[0])
     self.activation_funcs[0].func(self._weighted_inputs[0], out=self._batch_activations[0])
 
-    # hidden layers
-    for i in range(1, len(self.weights)-1):
+    # Remaining layers
+    for i in range(1, len(self.weights)):
       np.dot(self.weights[i], self._batch_activations[i-1], out=self._weighted_inputs[i])
       np.add(self._weighted_inputs[i], self.biases[i], out=self._weighted_inputs[i])
       self.activation_funcs[i].func(self._weighted_inputs[i], out=self._batch_activations[i])
-
-    # final layer (softmax)
-    np.dot(self.weights[-1], self._batch_activations[-2], out=self._weighted_inputs[-1])
-    np.add(self._weighted_inputs[-1], self.biases[-1], out=self._weighted_inputs[-1])
-    softmax(self._weighted_inputs[-1], out=self._batch_activations[-1])
 
     # backward pass initialization (delta = y - t)
     # We store delta[i] in self._batch_activations[i] to reduce memory_usage

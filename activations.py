@@ -1,6 +1,9 @@
 import numpy as np
 
 class ActivationFunction():
+  '''Class defining the basic structure of an activation function.
+
+  '''
 
   @staticmethod
   def func(z, out=None):
@@ -118,6 +121,27 @@ class Tanh(ActivationFunction):
 
     return a
 
+
+class Softmax(ActivationFunction):
+
+  def func(z, out=None):
+
+    # Where to store the result
+    a = z.copy() if out is None else out
+
+    # Scale the input to prevent overflow
+    m = np.amax(z, axis=0)
+    np.subtract(z, m, a)
+
+    # Compute the softmax
+    np.exp(a, a)
+    np.divide(a, np.sum(a, axis=0), a)
+
+    return a 
+
+  def prime(z, out=None):
+    pass
+    
 
 def sigmoid(z, out=None):
   '''Element-wise logistic sigmoid.
